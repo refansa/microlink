@@ -17,8 +17,6 @@
 #include "microlink_internal.h"
 #include "esp_log.h"
 #include "esp_random.h"
-#include "mbedtls/chacha20.h"
-#include "mbedtls/chachapoly.h"
 #include <string.h>
 
 static const char *TAG = "ml_noise";
@@ -147,16 +145,15 @@ static void noise_mix_key(uint8_t ck[32], uint8_t k[32], const uint8_t *dh_outpu
 
 /* ============================================================================
  * ChaCha20-Poly1305 AEAD (Noise uses 64-bit nonce, padded to 96-bit)
+ *
+ * Mbed TLS 4.x (ESP-IDF v6.0+) removed the legacy mbedtls_chachapoly_* API;
+ * PSA Crypto is the only public cryptography interface. Each call imports the
+ * 256-bit key into the PSA keystore for a single AEAD operation.
  * ========================================================================== */
 
-static int chacha20poly1305_encrypt(const uint8_t *key, uint64_t nonce,
-                                      const uint8_t *ad, size_t ad_len,
-                                      const uint8_t *plaintext, size_t pt_len,
-                                      uint8_t *ciphertext) {
-    /* Tailscale nonce: 4 bytes zeros + 8 bytes BIG-endian counter
-     * Matches Go: binary.BigEndian.PutUint64(n[4:], counter)
-     * V1 uses __builtin_bswap64 for the same effect */
-    uint8_t nonce_bytes[12];
+/* Tailscale nonce: 4 bytes zeros + 8 bytes BIG-endian counter
+ * Matches Go: binary.BigEndian.PutUint64(n[4:], counter) */
+static void noise_nonce_bytes(uint8_t nonce_bytes[12], uint64_t nonce) {
     memset(nonce_bytes, 0, 4);
     nonce_bytes[4]  = (nonce >> 56) & 0xFF;
     nonce_bytes[5]  = (nonce >> 48) & 0xFF;
@@ -166,18 +163,41 @@ static int chacha20poly1305_encrypt(const uint8_t *key, uint64_t nonce,
     nonce_bytes[9]  = (nonce >> 16) & 0xFF;
     nonce_bytes[10] = (nonce >> 8) & 0xFF;
     nonce_bytes[11] = nonce & 0xFF;
+}
 
-    mbedtls_chachapoly_context ctx;
-    mbedtls_chachapoly_init(&ctx);
-    mbedtls_chachapoly_setkey(&ctx, key);
+static bool noise_import_key(const uint8_t *key, psa_key_usage_t usage,
+                              mbedtls_svc_key_id_t *key_id) {
+    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attr, PSA_KEY_TYPE_CHACHA20);
+    psa_set_key_bits(&attr, 256);
+    psa_set_key_usage_flags(&attr, usage);
+    psa_set_key_algorithm(&attr, PSA_ALG_CHACHA20_POLY1305);
+    return psa_import_key(&attr, key, 32, key_id) == PSA_SUCCESS;
+}
+
+static int chacha20poly1305_encrypt(const uint8_t *key, uint64_t nonce,
+                                      const uint8_t *ad, size_t ad_len,
+                                      const uint8_t *plaintext, size_t pt_len,
+                                      uint8_t *ciphertext) {
+    uint8_t nonce_bytes[12];
+    noise_nonce_bytes(nonce_bytes, nonce);
+
+    mbedtls_svc_key_id_t key_id = MBEDTLS_SVC_KEY_ID_INIT;
+    if (!noise_import_key(key, PSA_KEY_USAGE_ENCRYPT, &key_id)) {
+        return -1;
+    }
 
     /* ciphertext layout: encrypted_data(pt_len) + tag(16) */
-    int ret = mbedtls_chachapoly_encrypt_and_tag(&ctx,
-                pt_len, nonce_bytes, ad, ad_len,
-                plaintext, ciphertext, ciphertext + pt_len);
+    uint8_t empty = 0;
+    size_t out_len = 0;
+    psa_status_t ret = psa_aead_encrypt(key_id, PSA_ALG_CHACHA20_POLY1305,
+                                         nonce_bytes, sizeof(nonce_bytes),
+                                         ad, ad_len,
+                                         plaintext ? plaintext : &empty, pt_len,
+                                         ciphertext, pt_len + 16, &out_len);
 
-    mbedtls_chachapoly_free(&ctx);
-    return ret;
+    psa_destroy_key(key_id);
+    return (ret == PSA_SUCCESS && out_len == pt_len + 16) ? 0 : -1;
 }
 
 static int chacha20poly1305_decrypt(const uint8_t *key, uint64_t nonce,
@@ -186,31 +206,28 @@ static int chacha20poly1305_decrypt(const uint8_t *key, uint64_t nonce,
                                       uint8_t *plaintext) {
     if (ct_len < 16) return -1;
 
-    /* Tailscale nonce: 4 bytes zeros + 8 bytes BIG-endian counter */
     uint8_t nonce_bytes[12];
-    memset(nonce_bytes, 0, 4);
-    nonce_bytes[4]  = (nonce >> 56) & 0xFF;
-    nonce_bytes[5]  = (nonce >> 48) & 0xFF;
-    nonce_bytes[6]  = (nonce >> 40) & 0xFF;
-    nonce_bytes[7]  = (nonce >> 32) & 0xFF;
-    nonce_bytes[8]  = (nonce >> 24) & 0xFF;
-    nonce_bytes[9]  = (nonce >> 16) & 0xFF;
-    nonce_bytes[10] = (nonce >> 8) & 0xFF;
-    nonce_bytes[11] = nonce & 0xFF;
+    noise_nonce_bytes(nonce_bytes, nonce);
 
     size_t payload_len = ct_len - 16;
-    const uint8_t *tag = ciphertext + payload_len;
 
-    mbedtls_chachapoly_context ctx;
-    mbedtls_chachapoly_init(&ctx);
-    mbedtls_chachapoly_setkey(&ctx, key);
+    mbedtls_svc_key_id_t key_id = MBEDTLS_SVC_KEY_ID_INIT;
+    if (!noise_import_key(key, PSA_KEY_USAGE_DECRYPT, &key_id)) {
+        return -1;
+    }
 
-    int ret = mbedtls_chachapoly_auth_decrypt(&ctx,
-                payload_len, nonce_bytes, ad, ad_len,
-                tag, ciphertext, plaintext);
+    /* psa_aead_decrypt() expects ciphertext || tag */
+    uint8_t empty = 0;
+    size_t out_len = 0;
+    psa_status_t ret = psa_aead_decrypt(key_id, PSA_ALG_CHACHA20_POLY1305,
+                                         nonce_bytes, sizeof(nonce_bytes),
+                                         ad, ad_len,
+                                         ciphertext, ct_len,
+                                         plaintext ? plaintext : &empty,
+                                         payload_len, &out_len);
 
-    mbedtls_chachapoly_free(&ctx);
-    return ret;
+    psa_destroy_key(key_id);
+    return (ret == PSA_SUCCESS && out_len == payload_len) ? 0 : -1;
 }
 
 /* ============================================================================

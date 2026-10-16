@@ -236,7 +236,10 @@ static esp_err_t wg_init_interface(microlink_t *ml) {
     /* Disable internal socket binding (we use magicsock mode) */
     wireguardif_disable_socket_bind();
 
-    /* Initialize WireGuard netif */
+    /* Initialize WireGuard netif. wg_init is passed through netif->state for
+     * this call only — wireguardif_init() consumes and clears it, because a
+     * netif that is not an esp-netif must keep netif->state NULL (ESP-IDF v6
+     * esp-netif casts it to esp_netif_t* in its lwIP netif callbacks). */
     netif->state = &wg_init;
     err_t err = wireguardif_init(netif);
     if (err != ERR_OK) {
@@ -312,7 +315,7 @@ static esp_err_t wg_init_interface(microlink_t *ml) {
 
     /* Verify WG device public key matches our expected key */
     {
-        struct wireguard_device *dev = (struct wireguard_device *)netif->state;
+        struct wireguard_device *dev = wireguardif_get_device(netif);
         if (dev) {
             bool match = (memcmp(dev->public_key, ml->wg_public_key, 32) == 0);
             ESP_LOGI(TAG, "WG device pubkey: %02x%02x%02x%02x... %s ml->wg_public_key",
@@ -519,7 +522,7 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
             p->wg_peer_index = wg_peer_idx;
 
             /* Verify the WG internal peer key matches what we passed */
-            struct wireguard_device *dev = (struct wireguard_device *)netif->state;
+            struct wireguard_device *dev = wireguardif_get_device(netif);
             if (dev && wg_peer_idx < WIREGUARD_MAX_PEERS) {
                 struct wireguard_peer *wp = &dev->peers[wg_peer_idx];
                 bool key_match = (memcmp(wp->public_key, p->public_key, 32) == 0);
@@ -982,7 +985,7 @@ static void process_disco_pong(microlink_t *ml, const ml_rx_packet_t *pkt,
                          * If handshake succeeds, the response handler will
                          * establish the session regardless of active flag. */
                         {
-                            struct wireguard_device *dev = (struct wireguard_device *)netif->state;
+                            struct wireguard_device *dev = wireguardif_get_device(netif);
                             if (dev && p->wg_peer_index < WIREGUARD_MAX_PEERS) {
                                 dev->peers[p->wg_peer_index].active = false;
                             }
@@ -1155,7 +1158,7 @@ static void process_wg_packet(microlink_t *ml, const ml_rx_packet_t *pkt) {
     }
 
     struct netif *netif = (struct netif *)ml->wg_netif;
-    void *device = netif->state;
+    void *device = wireguardif_get_device(netif);
     if (!device) {
         free(pkt->data);
         return;
@@ -1368,7 +1371,7 @@ bool ml_wg_mgr_peer_is_up(microlink_t *ml, uint32_t vpn_ip) {
     bool up = wireguardif_peer_is_up(netif, (u8_t)p->wg_peer_index, &cur_ip, &cur_port) == ERR_OK;
     if (up) {
         /* Verify WG internal peer key matches our DISCO peer */
-        struct wireguard_device *dev = (struct wireguard_device *)netif->state;
+        struct wireguard_device *dev = wireguardif_get_device(netif);
         if (dev && p->wg_peer_index < WIREGUARD_MAX_PEERS) {
             struct wireguard_peer *wp = &dev->peers[p->wg_peer_index];
             bool key_match = (memcmp(wp->public_key, p->public_key, 32) == 0);

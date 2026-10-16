@@ -157,6 +157,15 @@ microlink_t *microlink_init(const microlink_config_t *config) {
         return NULL;
     }
 
+    /* Mbed TLS 4.x (ESP-IDF v6.0+) performs all cryptography through PSA.
+     * ESP-IDF initializes the PSA subsystem during startup; call it here as
+     * well so MicroLink does not depend on that ordering. Idempotent. */
+    psa_status_t psa_ret = psa_crypto_init();
+    if (psa_ret != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "psa_crypto_init failed: %d", (int)psa_ret);
+        return NULL;
+    }
+
     /* Route cJSON to PSRAM */
     cJSON_Hooks hooks = {
         .malloc_fn = cjson_psram_malloc,

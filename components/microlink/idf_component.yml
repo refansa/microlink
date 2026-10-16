@@ -1,0 +1,7 @@
+## IDF Component Manager manifest — MicroLink v2
+##
+## cJSON is no longer bundled with ESP-IDF (removed in v6.0), so it is pulled
+## from the component registry as espressif/cjson.
+dependencies:
+  idf: ">=6.0"
+  espressif/cjson: "^1.7.19"

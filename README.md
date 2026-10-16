@@ -49,7 +49,7 @@ Production-ready Tailscale VPN client for the ESP32 platform with WiFi and 4G ce
 
 ## Requirements
 
-- ESP-IDF v5.0 or later (tested with v5.3)
+- ESP-IDF v6.0 or later (tested with v6.1)
 - ESP32 with WiFi (ESP32-S3 with PSRAM recommended)
 - Tailscale account with auth key (generate at https://login.tailscale.com/admin/settings/keys)
 - For cellular: ESP32-compatible 4G cellular module (e.g., SIM7600, SIM7670) + active SIM card
@@ -109,6 +109,9 @@ CONFIG_MBEDTLS_SSL_PROTO_TLS1_2=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
 
+# ChaCha20-Poly1305 (required: Noise control channel + PSA Crypto AEAD)
+CONFIG_MBEDTLS_CHACHAPOLY_C=y
+
 # Networking
 CONFIG_LWIP_IPV4=y
 CONFIG_LWIP_IP4_FRAG=y
@@ -121,11 +124,9 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 ### 3. Configure credentials
 
 ```bash
-cp sdkconfig.credentials.example sdkconfig.credentials
-# Edit sdkconfig.credentials with your WiFi SSID/password, Tailscale auth key, etc.
+idf.py menuconfig
+# → MicroLink V2 → Credentials: WiFi SSID/password, Tailscale auth key, device name
 ```
-
-Or run `idf.py menuconfig` → MicroLink V2 → Credentials to set them interactively.
 
 Credentials are stored in `sdkconfig` (which is gitignored) so they are never accidentally committed to version control.
 
@@ -136,6 +137,8 @@ source ~/esp/esp-idf/export.sh
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
 ```
+
+The first build downloads the `espressif/cjson` component (cJSON is no longer bundled with ESP-IDF v6.x), so it needs network access; the component is cached in `managed_components/`.
 
 ### 5. Test
 
@@ -153,13 +156,13 @@ pong from esp32-microlink (100.x.x.x) via DERP(dfw) in 150ms
 
 ## Memory Footprint
 
-### Static Memory (measured with `idf.py size`, ESP-IDF v5.3, ESP32-S3)
+### Static Memory (measured with `idf.py size`, ESP-IDF v6.1, ESP32-S3)
 
 | Build | SRAM (static) | Flash | IRAM | Free SRAM |
 |-------|---------------|-------|------|-----------|
-| WiFi + Web UI (`basic_connect`) | 116 KB | 950 KB | 16 KB | 226 KB |
-| WiFi + Cellular failover (`failover_connect`) | 123 KB | 950 KB | 16 KB | 219 KB |
-| Cellular only (`cellular_connect`) | 85 KB | 758 KB | 16 KB | 256 KB |
+| WiFi + Web UI (`basic_connect`) | 116 KB | 940 KB | 16 KB | 225 KB |
+| WiFi + Cellular failover (`failover_connect`) | 120 KB | 1025 KB | 16 KB | 222 KB |
+| Cellular only (`cellular_connect`) | 77 KB | 693 KB | 16 KB | 265 KB |
 
 ### Runtime Memory (allocated from heap at startup)
 
@@ -613,7 +616,7 @@ V2 uses fully dynamic DERP discovery — no manual region configuration needed. 
 
 MicroLink supports custom coordination servers like [Headscale](https://github.com/juanfont/headscale) and [Ionscale](https://github.com/jsiebens/ionscale). This allows you to run your own private Tailscale-compatible control plane.
 
-**Configuration:** Set the control plane host via the HTTP config server web UI (Device Settings → Control Plane Host) or programmatically via `ctrl_host` in the config struct.
+**Configuration:** Set the control plane host via the HTTP config server web UI (Device Settings → Control Plane Host). It is stored in NVS and applied on the next restart.
 
 **Server key:** MicroLink automatically fetches the server's Noise public key from the `/key` endpoint via HTTPS. No manual key configuration required.
 

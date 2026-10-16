@@ -113,7 +113,7 @@ static void zc_pcb_recv_cb(void *arg, struct udp_pcb *pcb,
     } else if (len >= 4 && ml->wg_netif) {
         /* WireGuard → ZERO COPY direct injection */
         struct netif *wg_netif = (struct netif *)ml->wg_netif;
-        void *device = wg_netif->state;
+        void *device = wireguardif_get_device(wg_netif);
         if (device) {
             /* wireguardif_network_rx takes ownership of pbuf */
             wireguardif_network_rx(device, NULL, p, addr, port);

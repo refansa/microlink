@@ -158,6 +158,13 @@ bool wireguardif_is_wireguard_packet(const uint8_t *data, size_t len);
 // MUST be called before netif_remove/mem_free to prevent use-after-free in wireguardif_tmr
 void wireguardif_shutdown(struct netif *netif);
 
+// Device handle for a WireGuard netif.
+// The device pointer is intentionally NOT kept in netif->state: ESP-IDF v6.x
+// esp-netif casts netif->state to esp_netif_t* in its global lwIP netif
+// callbacks, so a netif that is not an esp-netif must leave netif->state NULL.
+// Pass the netif returned by wireguardif_init() (single WireGuard interface).
+struct wireguard_device *wireguardif_get_device(struct netif *netif);
+
 // Run WireGuard periodic processing (handshakes, keepalives, rekeys) from caller's task.
 // In magicsock mode, the internal sys_timeout timer is disabled to avoid running heavy
 // crypto (X25519, ChaCha20-Poly1305) on the lwIP TCPIP thread. Call this every ~400ms.

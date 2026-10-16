@@ -27,8 +27,9 @@ set(REQUIRES
     esp_timer
     lwip
     mbedtls
-    json
-    driver
+    espressif__cjson
+    esp_driver_gpio
+    esp_driver_uart
     esp_driver_tsens
     esp_http_server
 )

@@ -4,7 +4,7 @@ This guide covers hardware setup, building, flashing, and testing MicroLink exam
 
 ## Prerequisites
 
-- **ESP-IDF v5.3+** installed ([setup guide](https://docs.espressif.com/projects/esp-idf/en/v5.3/esp32s3/get-started/))
+- **ESP-IDF v6.0+** installed ([setup guide](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32s3/get-started/))
 - **Tailscale account** with an auth key from [admin.tailscale.com](https://login.tailscale.com/admin/settings/keys)
   - Generate a **reusable + ephemeral** key for development
 - **USB-C cable** for flashing
@@ -34,24 +34,24 @@ Use the `lilygo_sim7670g` example — pin configuration is preset in sdkconfig.d
 
 ## Setup Credentials
 
-**All credentials are configured via `idf.py menuconfig`, not in source code.**
+**All credentials are configured via `idf.py menuconfig` — never in source code.**
 
-1. Copy the credential template:
-   ```bash
-   cd examples/<example_name>
-   cp sdkconfig.credentials.example sdkconfig.credentials
-   ```
+```bash
+cd examples/<example_name>
+idf.py menuconfig   # → MicroLink V2 → Credentials
+```
 
-2. Edit `sdkconfig.credentials` with your values:
-   ```
-   CONFIG_ML_WIFI_SSID="YourWiFi"
-   CONFIG_ML_WIFI_PASSWORD="YourPassword"
-   CONFIG_ML_TAILSCALE_AUTH_KEY="tskey-auth-..."
-   CONFIG_ML_CELLULAR_SIM_PIN="0000"
-   CONFIG_ML_CELLULAR_APN="your-apn"
-   ```
+Set at least:
 
-3. Or set interactively: `idf.py menuconfig` → MicroLink V2 → Credentials
+```
+WiFi SSID                  → CONFIG_ML_WIFI_SSID
+WiFi Password              → CONFIG_ML_WIFI_PASSWORD
+Tailscale Auth Key         → CONFIG_ML_TAILSCALE_AUTH_KEY
+```
+
+Cellular builds additionally use `CONFIG_ML_CELLULAR_SIM_PIN` and `CONFIG_ML_CELLULAR_APN`.
+
+The values are written to `sdkconfig` (git-ignored), so they are never committed.
 
 ## Build & Flash
 

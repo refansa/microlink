@@ -26,7 +26,6 @@
  *   (or LILYGO T-SIM7670G-S3 — change board in sdkconfig.defaults)
  *
  * Credentials: All via menuconfig (git-ignored sdkconfig).
- *   See sdkconfig.credentials.example for template.
  *
  * Testing (verifies transport works end-to-end):
  *

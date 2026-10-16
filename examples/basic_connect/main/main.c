@@ -13,7 +13,7 @@
 
 #include <string.h>
 #include <stdio.h>
-#include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOS.h" /* IWYU pragma: keep */
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "esp_system.h"
@@ -24,7 +24,7 @@
 #include "esp_netif.h"
 
 #include "microlink.h"
-#include "microlink_internal.h"  /* For task handle access (diagnostic) */
+#include "microlink_internal.h"  /* IWYU pragma: keep for task handle access (diagnostic) */
 #include "ml_config_httpd.h"     /* NVS WiFi override at boot */
 
 static const char *TAG = "main";
